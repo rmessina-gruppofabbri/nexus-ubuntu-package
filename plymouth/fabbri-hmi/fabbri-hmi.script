@@ -1,0 +1,34 @@
+Window.SetBackgroundTopColor(1, 1, 1);
+Window.SetBackgroundBottomColor(1, 1, 1);
+
+# Logo e scritta "System starting up" centrati insieme. gap deve restare uguale a
+# GAP in plymouth/make-text-images.py (stessa posizione dello sfondo di Openbox).
+gap = -40;
+
+logo_image = Image("logo.png");
+text_images[0] = Image("text-0.png");
+text_images[1] = Image("text-1.png");
+text_images[2] = Image("text-2.png");
+text_images[3] = Image("text-3.png");
+
+block_height = logo_image.GetHeight() + gap + text_images[0].GetHeight();
+top = Math.Int(Window.GetHeight() / 2 - block_height / 2);
+
+logo_sprite = Sprite(logo_image);
+logo_sprite.SetX(Math.Int(Window.GetWidth() / 2 - logo_image.GetWidth() / 2));
+logo_sprite.SetY(top);
+logo_sprite.SetZ(0);
+
+text_sprite = Sprite(text_images[0]);
+text_sprite.SetX(Math.Int(Window.GetWidth() / 2 - text_images[0].GetWidth() / 2));
+text_sprite.SetY(top + logo_image.GetHeight() + gap);
+text_sprite.SetZ(10);
+
+# Puntini animati: la funzione è chiamata ~50 volte al secondo, un puntino in più
+# ogni mezzo secondo.
+frame = 0;
+fun refresh_callback() {
+	frame++;
+	text_sprite.SetImage(text_images[Math.Int(frame / 25) % 4]);
+}
+Plymouth.SetRefreshFunction(refresh_callback);

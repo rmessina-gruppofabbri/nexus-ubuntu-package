@@ -1,0 +1,123 @@
+#cloud-config
+autoinstall:
+  version: 1
+  # storage NON è interattivo: se lo fosse, Subiquity mostrerebbe la propria
+  # schermata dei dischi senza precompilare lo schema qui sotto. Il disco è scelto
+  # dalle regole match più sotto, che non selezionano mai chiavette USB.
+  interactive-sections:
+    - identity
+    - network
+  # Lo schema qui sotto è solo UEFI (partizione EFI). Avviato in modalità legacy
+  # BIOS/CSM, Subiquity fallirebbe più avanti con "did not create needed bootloader
+  # partition": meglio fermarsi subito con un messaggio chiaro.
+  early-commands:
+    - >-
+      sh -c '[ -d /sys/firmware/efi ] || { echo "HMI: installer started in legacy BIOS mode.
+      Reboot and start the USB stick from its UEFI boot entry (or disable CSM/Legacy in the firmware)." >&2;
+      exit 1; }'
+  locale: it_IT.UTF-8
+  keyboard:
+    layout: it
+  timezone: Europe/Rome
+  source:
+    id: ubuntu-server-minimal
+  updates: all
+  storage:
+    swap:
+      size: 0
+    config:
+      # Solo disco interno: prima SATA/mSATA, NVMe come ripiego (lista ordinata,
+      # Subiquity >= 24.08.1). I dispositivi USB hanno "usb" in ID_PATH e non
+      # corrispondono mai; la chiavetta di installazione non viene comunque mai
+      # scelta. Niente "ssd: true": dischi virtuali e alcuni controller
+      # dichiarano un disco rotativo.
+      - type: disk
+        id: target-disk
+        match:
+          - id_path: "*-ata-*"
+            size: smallest
+          - id_path: "*-nvme-*"
+            size: smallest
+        ptable: gpt
+        wipe: superblock-recursive
+        grub_device: false
+      # UEFI: il boot loader va sulla partizione EFI.
+      - type: partition
+        id: efi-partition
+        device: target-disk
+        size: 512M
+        flag: boot
+        grub_device: true
+      - type: format
+        id: efi-format
+        volume: efi-partition
+        fstype: fat32
+      - type: mount
+        id: efi-mount
+        device: efi-format
+        path: /boot/efi
+      # Sistema: in sola lettura durante il funzionamento (overlayroot), scrivibile
+      # solo in manutenzione. ~3,5 GB occupati dopo slim-system.sh; il resto è
+      # margine per gli aggiornamenti di kernel e pacchetti.
+      - type: partition
+        id: root-partition
+        device: target-disk
+        size: 6G
+      - type: format
+        id: root-format
+        volume: root-partition
+        fstype: ext4
+        label: hmi-root
+      - type: mount
+        id: root-mount
+        device: root-format
+        path: /
+      # Dati: sempre scrivibili. Immagini Docker, containerd, progetto Compose,
+      # PostgreSQL, journal persistente.
+      - type: partition
+        id: data-partition
+        device: target-disk
+        size: -1
+      - type: format
+        id: data-format
+        volume: data-partition
+        fstype: ext4
+        label: hmi-data
+      - type: mount
+        id: data-mount
+        device: data-format
+        path: /data
+        options: defaults,noatime
+  # SSH per l'account amministratore, solo con chiave (niente accesso con password).
+  # prepare-autoinstall-seed.sh compila questi campi nella copia su CIDATA se
+  # esiste la chiave pubblica ~/.ssh/nexus-hmi.pub; altrimenti SSH resta disattivato.
+  ssh:
+    install-server: false
+    allow-pw: false
+    authorized-keys: []
+  user-data:
+    disable_root: true
+  late-commands:
+    - |
+      set -eu
+      seed_device=$(blkid -L CIDATA)
+      test -b "$seed_device"
+      seed_source=$(readlink -f "$seed_device")
+      seed_mount=$(findmnt -rn -S "$seed_source" -o TARGET | head -n 1 || true)
+      mounted_here=false
+      if [ -z "$seed_mount" ]; then
+        seed_mount=/run/hmi-seed
+        mkdir -p "$seed_mount"
+        mount -o ro "$seed_device" "$seed_mount"
+        mounted_here=true
+      fi
+      test -r "$seed_mount/payload.tar.gz"
+      mkdir -p /target/opt/hmi-installer
+      tar -xzf "$seed_mount/payload.tar.gz" -C /target/opt/hmi-installer
+      install -m 0644 /target/opt/hmi-installer/autoinstall/hmi-firstboot.service \
+        /target/etc/systemd/system/hmi-firstboot.service
+      curtin in-target --target=/target -- systemctl enable hmi-firstboot.service
+      if [ "$mounted_here" = true ]; then
+        umount "$seed_mount"
+      fi
+  shutdown: reboot

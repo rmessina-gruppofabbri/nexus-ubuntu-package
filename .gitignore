@@ -1,0 +1,10 @@
+# ISO di Ubuntu: si scarica da ubuntu.com (vedi docs/installazione.md)
+/iso/
+# Bundle offline di Nexus H7 (immagine Docker): generato da
+# scripts/build-nexus-bundle.sh / prepare-autoinstall-seed.sh
+/deployment/bundle/
+# Impostazioni reali della macchina
+*.env
+!*.env.example
+__pycache__/
+*.pyc

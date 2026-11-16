@@ -1,0 +1,74 @@
+# Nexus H7 sul PC HMI: gateway (protocollo TIM -> WebSocket + OPC UA) che serve
+# il pannello operatore frontend-h7. Dimensionato per 2 GB di RAM: Chrome occupa 400-700 MB.
+#
+# Le impostazioni specifiche della macchina vanno in /data/hmi/.env (modello: hmi.env.example),
+# mai in questo file, così lo stesso manifest vale per tutte le macchine.
+#
+# L'immagine è costruita dal repository nexus-h7 (scripts/build-nexus-bundle.sh)
+# e installata dal bundle offline, quindi "localhost/" non viene mai scaricata da
+# un registry. Per una nuova versione: cambiare il tag qui e ricostruire il bundle.
+
+name: hmi
+
+x-hardening: &hardening
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=32m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  gateway:
+    <<: *hardening
+    image: localhost/nexus-h7:1.0.0
+    # Nome fisso: il certificato OPC UA (applicationUri) è legato a questo nome,
+    # quindi non deve cambiare quando un aggiornamento ricrea il container.
+    hostname: nexus-h7
+    mem_limit: 384m
+    environment:
+      H7_MODE: ${H7_MODE:-master}
+      MACHINE_TRANSPORT: ${MACHINE_TRANSPORT:-serial}
+      MACHINE_HOST: ${MACHINE_HOST:-}
+      MACHINE_PORT: ${MACHINE_PORT:-5021}
+      SERIAL_PATH: ${SERIAL_PATH:-/dev/ttyS4}
+      SERIAL_BAUD: ${SERIAL_BAUD:-38400}
+      TIM_MODEM_EMULATION: ${TIM_MODEM_EMULATION:-1}
+      OPCUA_ENABLED: ${OPCUA_ENABLED:-true}
+      OPCUA_LANG: ${OPCUA_LANG:-it}
+      # Indirizzo con cui i client OPC UA raggiungono questo PC (pubblicato negli endpoint).
+      OPCUA_HOSTNAME: ${OPCUA_HOSTNAME:-}
+    volumes:
+      # Configurazione salvata dalla HMI: machine.json, protocol.json, structs.json
+      - ./gateway-data:/data
+      # Certificati OPC UA: conservati perché i client continuino a fidarsi del server
+      - ./opcua-pki:/home/node/.config
+    ports:
+      # Pannello operatore e WebSocket: solo kiosk, a meno che HMI_BIND li apra ai tablet.
+      - "${HMI_BIND:-127.0.0.1}:3001:3001"
+      # OPC UA per SCADA/MES: impostare OPCUA_BIND all'indirizzo di questo PC sulla rete di stabilimento.
+      - "${OPCUA_BIND:-127.0.0.1}:4841:4841"
+    # Linea seriale della macchina (predefinita /dev/ttyS4, 38400 8N1). Il dispositivo
+    # deve esistere sull'host, altrimenti il container non parte. Con il
+    # convertitore seriale/Ethernet (MACHINE_TRANSPORT=tcp) togliere questi due blocchi.
+    devices:
+      - ${SERIAL_PATH:-/dev/ttyS4}:${SERIAL_PATH:-/dev/ttyS4}
+    group_add:
+      - "20"   # dialout su Ubuntu: gruppo proprietario di /dev/ttyS*
+
+  # CPU H7 simulata per prove senza la macchina. Per usarla, togliere il commento e
+  # impostare in /data/hmi/.env: COMPOSE_PROFILES=sim, MACHINE_TRANSPORT=tcp,
+  # MACHINE_HOST=simulator, MACHINE_PORT=5021.
+  # simulator:
+  #   <<: *hardening
+  #   image: localhost/nexus-h7:1.0.0
+  #   profiles: ["sim"]
+  #   command: ["node", "src/simulator.ts"]
+  #   mem_limit: 128m
+  #   environment:
+  #     SIM_PORT: "5021"
+  #   healthcheck:
+  #     disable: true

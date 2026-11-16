@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Fabbri Group HMI
+Description=Fabbri Group boot logo for the industrial HMI
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/fabbri-hmi
+ScriptFile=/usr/share/plymouth/themes/fabbri-hmi/fabbri-hmi.script

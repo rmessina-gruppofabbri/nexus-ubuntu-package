@@ -1,0 +1,15 @@
+[Unit]
+Description=Provision the industrial HMI kiosk on first boot
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/hmi-provision/complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/hmi-installer/scripts/firstboot-setup.sh
+Restart=on-failure
+RestartSec=60s
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
